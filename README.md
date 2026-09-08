@@ -1,4 +1,3 @@
-````md
 # Fact Knowledge Layer
 
 The **Fact Knowledge Layer** extracts factual claims from PDFs, keeps every fact grounded to its source page and verbatim evidence, and finds relationships between facts across documents.
@@ -31,13 +30,13 @@ https://drive.google.com/file/d/1Y3jPCyBXYpRbTd3U2Rnqw421fA3hBqus/view
 git clone https://github.com/tihsra/superAssignment.git
 cd fact-knowledge-layer
 npm install
-````
+```
 
 Create a `.env` file and add:
 
 ```bash
 cp .env.example .env
-````
+```
 
 ```env
 GEMINI_API_KEY=your_api_key
@@ -45,7 +44,7 @@ GEMINI_API_KEY=your_api_key
 
 Get a key from:
 
-[https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+https://aistudio.google.com/apikey
 
 The project is designed around the Gemini AI Studio free-tier setup and does not require a credit card or GCP project.
 
@@ -66,7 +65,7 @@ Upload a PDF and wait for it to reach `ready` status. Upload a second document w
 
 ### Development
 
-For faster testing, set: {ideally use 2-3 if using free gemini API key} 
+For faster testing, set (ideally use 2-3 if using a free Gemini API key):
 
 ```env
 DEV_MAX_PAGES=3
@@ -228,9 +227,9 @@ The Gemini free tier has request and quota limits, which can become noticeable d
 
 The project includes:
 
-* Disk-based LLM response caching
-* `DEV_MAX_PAGES` for limited development runs
-* Exponential backoff for rate-limit errors
+- Disk-based LLM response caching
+- `DEV_MAX_PAGES` for limited development runs
+- Exponential backoff for rate-limit errors
 
 Caching is enabled by default:
 
@@ -284,12 +283,12 @@ PDFs are layout-oriented rather than structured-data documents. Complex layouts 
 
 Possible issues include:
 
-* Unusual reading order
-* Multi-column pages
-* Complex tables
-* Repeated headers
-* Headers becoming separated from their values
-* Incorrect reconstruction of table structure
+- Unusual reading order
+- Multi-column pages
+- Complex tables
+- Repeated headers
+- Headers becoming separated from their values
+- Incorrect reconstruction of table structure
 
 A future visual extraction step could improve handling of difficult documents.
 
@@ -387,16 +386,13 @@ GET    /relationships
   /matching        — embeddings, matching, canonicalization
   /judging         — relationship judging
   /storage         — SQLite and sqlite-vec
-  /api              — Express API
-  /llm              — Gemini client, cache, retry logic
-  /pipeline         — ingestion orchestration
+  /api             — Express API
+  /llm             — Gemini client, cache, retry logic
+  /pipeline        — ingestion orchestration
 
-/web                — frontend
+/web               — frontend
 
-/test               — automated tests
+/test              — automated tests
 
-/scripts             — CLI and development utilities
-```
-
-```
+/scripts           — CLI and development utilities
 ```
