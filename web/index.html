@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fact Knowledge Layer</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Fact Knowledge Layer</h1>
+    <p class="subtitle">Upload a PDF. Facts are extracted with evidence, then compared across your whole corpus.</p>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="upload">Upload</button>
+    <button class="tab-btn" data-tab="documents">Documents &amp; Facts</button>
+    <button class="tab-btn" data-tab="relationships">Relationships</button>
+  </nav>
+
+  <main>
+    <section id="tab-upload" class="tab-panel active">
+      <div class="upload-box">
+        <input type="file" id="file-input" accept="application/pdf" />
+        <button id="upload-btn">Upload &amp; Process</button>
+        <p id="upload-status"></p>
+      </div>
+      <div id="recent-docs"></div>
+    </section>
+
+    <section id="tab-documents" class="tab-panel">
+      <div class="two-col">
+        <div class="doc-list">
+          <h2>Documents</h2>
+          <ul id="document-list"></ul>
+        </div>
+        <div class="fact-list">
+          <h2 id="fact-list-heading">Select a document</h2>
+          <div id="facts-container"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-relationships" class="tab-panel">
+      <div class="rel-filter">
+        <label>Filter: </label>
+        <select id="rel-type-filter">
+          <option value="">All</option>
+          <option value="corroborates">Corroborates</option>
+          <option value="contradicts">Contradicts</option>
+          <option value="reconciled_by_context">Reconciled by context</option>
+          <option value="unrelated">Unrelated</option>
+        </select>
+      </div>
+      <div id="relationships-container"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+test
+.env
+data/*.db
+data/*.db-*
+data/llm-cache/
+uploads/*
+!uploads/.gitkeep
+*.log
+.DS_Store
