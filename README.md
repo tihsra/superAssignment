@@ -1,329 +1,402 @@
+````md
 # Fact Knowledge Layer
 
-Given any PDF, this extracts factual claims (numeric or semantic), grounds every fact
-in its source (page + verbatim quote), and — across your whole document corpus —
-figures out which facts corroborate each other, which genuinely contradict, and which
-only *look* contradictory once you account for time scope, units, or qualifiers.
+The **Fact Knowledge Layer** extracts factual claims from PDFs, keeps every fact grounded to its source page and verbatim evidence, and finds relationships between facts across documents.
 
-It is **not** a Q&A chatbot. Everything happens once, upfront, at ingestion time:
-extract → embed → cluster → match → judge. The primary UI is a fact browser and a
-relationship browser, not a chat box. See "Why this shape" below.
+Facts can be classified as:
 
-## Demo video
+- **Corroborates** — facts support each other
+- **Contradicts** — facts genuinely disagree
+- **Reconciled by context** — differences are explained by time, units, qualifiers, etc.
+- **Unrelated** — facts are not meaningfully comparable
 
-`[link here once recorded]`
+The complete pipeline runs during ingestion:
+
+**extract → embed → canonicalize → match → judge**
+
+This is not a RAG chatbot. The main UI is a fact and relationship browser.
+
+## Demo Video
+
+https://drive.google.com/file/d/1Y3jPCyBXYpRbTd3U2Rnqw421fA3hBqus/view
 
 ## Setup
 
-Requirements: Node.js 18+, and a free Gemini API key (no credit card, no GCP project).
+### Requirements
+
+- Node.js 18+
+- Gemini API key
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/tihsra/superAssignment.git
 cd fact-knowledge-layer
 npm install
+````
+
+Create a `.env` file and add:
+
+```bash
+cp .env.example .env
+````
+
+```env
+GEMINI_API_KEY=your_api_key
 ```
 
-Get a key at <https://aistudio.google.com/apikey>, paste it into `.env` as
-`GEMINI_API_KEY`. **Do not** enable billing on a GCP project to do this — enabling
-billing can silently remove the free tier from that project. The plain AI Studio
-free-tier path (no GCP project at all) is what this was built and tested against.
+Get a key from:
+
+[https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+The project is designed around the Gemini AI Studio free-tier setup and does not require a credit card or GCP project.
+
+Build and run:
 
 ```bash
 npm run build
 npm start
 ```
 
-Open <http://localhost:3001> — upload a PDF, watch it move to `ready` status, browse
-its facts, then upload a second PDF that overlaps in subject matter and check the
-Relationships tab.
+Open:
 
-For faster iteration while developing, `npm run dev` runs the API with hot reload, and
-`npm run ingest -- /path/to/file.pdf` runs one document through the pipeline directly
-from the command line without going through the API/UI — useful for the validation
-workflow below.
-
-### Validating extraction quality by hand before trusting the pipeline
-
-1. Set `DEV_MAX_PAGES=3` in `.env` and hand-pick a page you know well.
-2. `npm run ingest -- your-file.pdf` and read the printed JSON against the actual page.
-3. Once that looks right, unset `DEV_MAX_PAGES` and run the full document.
-
-### Troubleshooting: `better-sqlite3` fails to build on a very new Node version
-
-If `npm install` / `npm start` fails with `Could not locate the bindings file` or a
-native compile error mentioning `v8::Object`, `GetPrototype`, or
-`PropertyCallbackInfo::This`, it means your Node version is newer than the prebuilt
-binaries `better-sqlite3` shipped for at the time this was built (this happened during
-development on a very recent Node version — the fix was bumping to
-`better-sqlite3@^13.0.3`, which is in this repo's `package.json`; if you're on an even
-newer Node than that supports, you may need to bump it further). Two options:
-
-1. **Preferred: use a current LTS Node version** (18, 20, or 22) via
-   [nvm](https://github.com/nvm-sh/nvm) — `nvm install 22 && nvm use 22` — which has
-   the broadest prebuilt-binary coverage and is what this was actually developed and
-   tested against.
-2. **Or bump `better-sqlite3` further**: check `npm view better-sqlite3 versions` for
-   anything newer than what's pinned here, update `package.json`, delete
-   `node_modules`/`package-lock.json`, and `npm install` again.
-
-If `npm install` reports `install scripts blocked` for `better-sqlite3`, your npm
-version has script-execution safety on by default — run
-`npm install-scripts approve better-sqlite3 && npm install` to allow its (required,
-compiles or downloads the native SQLite binding) install step.
-
-
-
-```bash
-npm test
+```text
+http://localhost:3001
 ```
 
-9 tests covering: PDF page-boundary extraction against real (fixture) PDFs, the
-heuristic-first page classifier, the metric-canonicalization guardrail case (below),
-and a full ingest→extract→match→judge pipeline run with a fake LLM client that
-implements the same interface the real Gemini client does. **These fixtures are
-synthetic** — I did not have the actual assignment test corpus (Delhivery prospectus,
-RBI/IMF reports, etc.) available while building this in isolation from the source
-documents, so the fixtures approximate the shapes described in the brief (a tabular
-financial page, a narrative page, a cross-document numeric restatement) rather than
-being the real files. **Before submitting, re-run `npm run ingest` against the actual
-seven-file test corpus and confirm the four required cases reproduce with the real
-documents** — the pipeline architecture is validated end-to-end, but extraction
-*quality* against the specific real PDFs is not, since I never had a live Gemini key
-or the real files in this environment.
+Upload a PDF and wait for it to reach `ready` status. Upload a second document with overlapping subject matter to explore relationships between facts.
+
+### Development
+
+For faster testing, set: {ideally use 2-3 if using free gemini API key} 
+
+```env
+DEV_MAX_PAGES=3
+```
+
+This limits ingestion to the first few pages.
+
+## Troubleshooting
+
+### `better-sqlite3` build errors
+
+If `npm install` fails with errors such as:
+
+```text
+Could not locate the bindings file
+```
+
+or native compilation errors involving `v8::Object`, `GetPrototype`, or `PropertyCallbackInfo::This`, your Node.js version may be newer than the available `better-sqlite3` binaries.
+
+Using a current LTS version such as Node 18, 20, or 22 is recommended:
+
+```bash
+nvm install 22
+nvm use 22
+```
+
+If npm reports that install scripts are blocked:
+
+```bash
+npm install-scripts approve better-sqlite3
+npm install
+```
 
 ## Approach
 
-### Why this shape, not RAG
+### Why this is not RAG
 
-Classic RAG retrieves at *query* time. Nothing here does that. A PDF is processed once:
-page-by-page text extraction → per-page shape classification (tabular vs. narrative,
-which prompt runs) → fact extraction with a structured schema → embedding → metric
-canonicalization → embedding-based candidate matching against the rest of the corpus →
-an LLM judge call per candidate pair, with reasoning stored verbatim. A free-text Q&A
-layer could be bolted on top of the same embeddings later; it's explicitly out of scope
-for v1 and nothing here assumes it's coming.
+Traditional RAG retrieves information when a user asks a question.
 
-### Fixed envelope, open content
+This project instead processes documents upfront and builds a structured fact store. The goal is to understand relationships between facts across the entire document corpus.
 
-The `Fact` shape (`entity`, `metric`, `value`, `unit`, `time_scope`, `qualifiers`,
-`evidence`) is fixed in `src/types.ts` and never changes. What fills those fields is
-100% LLM-derived per document — there is no hardcoded entity list, metric list, or
-per-filename branch anywhere in `src/`. `grep -rn "if.*metric.*==\|if.*entity.*=="  src/`
-comes back empty by design; that's the thing to re-check if this codebase is extended.
+The pipeline is:
 
-### Page-shape classification, and why it's not one prompt for every page
+```text
+PDF
+ ↓
+Page text extraction
+ ↓
+Page classification
+ ↓
+Fact extraction
+ ↓
+Embedding
+ ↓
+Metric canonicalization
+ ↓
+Candidate matching
+ ↓
+LLM judging
+ ↓
+Stored fact relationships
+```
 
-A single fixed extraction prompt silently breaks on multi-column financial tables —
-flattening a table to plain text loses the row/column-to-time-period mapping. So each
-page is classified `tabular | narrative | mixed` first, and the tabular prompt makes
-the model explicitly restate the column headers and what period each column represents
-*before* extracting anything, rather than guessing a mapping. To avoid spending an LLM
-call on every single page (free-tier quota is real — see below), a cheap heuristic
-(digit density + column-gutter density) handles the pages that are obviously one or the
-other, and only escalates genuinely ambiguous pages to the LLM classifier
-(`src/ingestion/pageClassifier.ts`).
+A Q&A layer could be added later, but it is outside the scope of this version.
 
-### Blocking before judging
+### Fixed Fact Structure
 
-Candidate matching (`src/matching/candidateMatch.ts`) uses `sqlite-vec` cosine-KNN to
-find plausible candidates for a fact *before* any pair reaches the judge LLM. Full
-pairwise comparison of every fact against every other fact was deliberately rejected —
-it's brute force, not reasoning, and it doesn't scale.
+Every extracted fact follows the same structure:
 
-### Metric canonicalization: incremental, and deliberately hard to merge
+```text
+entity
+metric
+value
+unit
+time_scope
+qualifiers
+evidence
+```
 
-`src/matching/canonicalize.ts` clusters `metric` strings ("Revenue from operations" ≈
-"Revenue from services") by embedding similarity so near-synonyms can be recognized
-across documents without a hardcoded synonym dictionary. The threshold defaults high
-(`CANONICAL_SIMILARITY_THRESHOLD=0.90`) on purpose, because of a real case from the
-assignment's own test corpus: **"Total income" (₹8,594 Cr) and "Revenue from services"
-(₹8,142 Cr) are not the same metric** — Total income includes ₹453 Cr of other income
-that Revenue from services excludes. An over-eager merge here manufactures a false
-contradiction between two numbers that were never claiming the same thing. When in
-doubt, `metric_canonical` stays `null` — a null canonical label is honest, a wrong merge
-is a bug that produces a confident wrong answer. This exact case is `test/canonicalize.test.js`'s
-first test.
+The structure is defined in `src/types.ts`.
 
-This is also the one **extension** I chose to build and finish properly rather than
-attempt several halfway: canonicalization is fully incremental. A new document only
-gets its own new metric vocabulary embedded and compared against existing cluster
-*representatives* (a small, persisted table — `metric_clusters` /
-`metric_cluster_members` — not the whole fact corpus). Exact-text reuse of a metric
-already seen before costs zero embedding calls. If a new document's vocabulary happens
-to merge into a previously-singleton cluster, the *old* facts from earlier documents
-get backfilled with the new canonical label too — this is tested explicitly in
-`test/canonicalize.test.js` (the "backfill applies to facts from earlier ingestions"
-case) and is the part of an incremental design that's easy to get wrong: it's not
-enough to canonicalize the new facts, old facts' labels can retroactively become true
-as new documents connect them. Candidate matching/judging already got this property for
-free from the sqlite-vec KNN index (a new fact's candidates come from an index query,
-not a corpus rescan); this extension is what makes canonicalization match that
-property. I considered "handle large PDFs" and "handle many PDFs" as alternatives but
-skipped them — they're "add more of the same" without a distinct design problem to
-solve, unlike incremental canonicalization, which has an actual right and wrong answer
-(see the backfill case above for where the wrong answer would show up).
+The actual entities and metrics are extracted dynamically from each document. There are no hardcoded company names, metric lists, or document-specific extraction branches.
 
-### Rate-limit-aware development
+### Page Classification
 
-The free Gemini tier's per-minute/per-day caps get hit during *development*, not just
-at demo time. `src/llm/cache.ts` caches LLM responses on disk keyed by
-`(content hash, prompt version)` so repeated debugging runs against the same document
-or fact pair don't re-spend quota (`LLM_CACHE_ENABLED=true` by default; disable for
-tests). `DEV_MAX_PAGES` in `.env` limits ingestion to the first N pages for fast
-iteration. `src/llm/retry.ts` wraps every call in exponential backoff (1s/2s/4s/8s) on
-anything that looks like a 429/quota error.
+Pages are classified as:
 
-### Ease of setup
+```text
+tabular | narrative | mixed
+```
 
-SQLite + `sqlite-vec`, no Docker, no second database, no queue. `npm install && npm run
-build && npm start` from a clean clone is the whole setup. If an extension needs new
-infrastructure later, that should be a documented, explicit decision in this section —
-not something that quietly erodes "clone and run."
+This is important because complex financial tables can lose their row, column, and period relationships when converted into plain text.
+
+The tabular extraction prompt therefore asks the model to reconstruct the relevant column headers and periods before extracting facts.
+
+To reduce Gemini API usage, obvious page types are identified using lightweight heuristics. Only ambiguous pages require an additional LLM classification call.
+
+Implementation:
+
+```text
+src/ingestion/pageClassifier.ts
+```
+
+### Candidate Matching
+
+Comparing every fact against every other fact would become expensive as the corpus grows.
+
+Instead, `sqlite-vec` cosine KNN search is used to find plausible candidates for each fact.
+
+Only these candidate pairs are sent to the LLM judge.
+
+This reduces the number of expensive reasoning calls while still allowing facts from different documents to be compared.
+
+### Metric Canonicalization
+
+Different documents may use different names for similar metrics.
+
+Metric canonicalization uses embedding similarity to group related metric names instead of relying on a hardcoded synonym dictionary.
+
+The default threshold is:
+
+```env
+CANONICAL_SIMILARITY_THRESHOLD=0.90
+```
+
+The threshold is intentionally conservative.
+
+For example:
+
+```text
+Total income = ₹8,594 Cr
+Revenue from services = ₹8,142 Cr
+```
+
+These should not automatically be treated as contradictory because they can represent different concepts. Total income can include components that revenue from services does not.
+
+The system therefore prefers leaving `metric_canonical` as `null` rather than incorrectly merging two different metrics.
+
+### Incremental Canonicalization
+
+Canonicalization is incremental.
+
+When a new document is ingested, its metric vocabulary is compared against existing metric cluster representatives rather than the entire fact corpus.
+
+The relevant tables are:
+
+```text
+metric_clusters
+metric_cluster_members
+```
+
+If a new document connects an existing metric to a cluster, facts from earlier documents can also be updated with the resulting canonical label.
+
+This avoids rebuilding the entire metric vocabulary every time a document is added.
+
+### Gemini API Rate Limits
+
+The Gemini free tier has request and quota limits, which can become noticeable during development and when processing large PDFs.
+
+The project includes:
+
+* Disk-based LLM response caching
+* `DEV_MAX_PAGES` for limited development runs
+* Exponential backoff for rate-limit errors
+
+Caching is enabled by default:
+
+```env
+LLM_CACHE_ENABLED=true
+```
+
+This prevents repeated development runs against the same input from unnecessarily consuming API quota.
+
+## Implementation Notes
+
+### PDF Parser
+
+The project initially used `pdf-parse`, but it failed on a valid modern PDF with a:
+
+```text
+bad XRef entry
+```
+
+error.
+
+The implementation was therefore changed to use `pdfjs-dist` directly in:
+
+```text
+src/ingestion/pdfExtractor.ts
+```
+
+This provides a more current PDF parsing layer and better control over page-level extraction.
+
+### Gemini SDK and Model Updates
+
+The Gemini integration uses the newer:
+
+```text
+@google/genai
+```
+
+SDK.
+
+The extraction and embedding models are configurable through `.env`, allowing model IDs to be updated without changing the rest of the pipeline.
+
+The embedding request is configured for 768 dimensions to match the existing `sqlite-vec` schema.
+
+If Google changes or retires a model, the model configuration can be updated independently of the application logic.
+
+## Limitations
+
+### PDF Parsing
+
+PDFs are layout-oriented rather than structured-data documents. Complex layouts can therefore still cause extraction problems.
+
+Possible issues include:
+
+* Unusual reading order
+* Multi-column pages
+* Complex tables
+* Repeated headers
+* Headers becoming separated from their values
+* Incorrect reconstruction of table structure
+
+A future visual extraction step could improve handling of difficult documents.
+
+### Charts and Images
+
+Information that exists only inside charts or images may not be present in the PDF text layer.
+
+The current pipeline therefore cannot reliably extract every number from visual-only content.
+
+A future version could render these pages and use a multimodal model for visual extraction.
+
+### Table Extraction
+
+Complex multi-level tables can sometimes result in a value being associated with the wrong column or reporting period.
+
+The tabular prompt attempts to reduce this problem by reconstructing the table structure first, but extraction is still model-based rather than fully deterministic.
+
+### Gemini API Limits
+
+Large PDFs can require many Gemini API calls and may hit free-tier limits.
+
+Caching and development page limits reduce unnecessary calls, but they do not remove the underlying quota restrictions.
+
+A production version would likely require higher API limits, batching, queueing, and additional caching.
+
+### Semantic Matching
+
+Embedding similarity can sometimes be broader than the actual meaning of a fact.
+
+For example, unrelated facts from a financial document may still become candidate matches because they share financial terminology or context.
+
+The LLM judge is responsible for filtering these cases and identifying them as unrelated, but the candidate-generation stage can still produce some noisy comparisons.
+
+### Metric Canonicalization
+
+Metric clustering depends on embedding quality, particularly for short metric names.
+
+The `0.90` threshold is intentionally conservative and may need further tuning against a larger real-world corpus.
+
+### Known Chart-Label Edge Case
+
+The assignment documentation describes a chart extraction issue where a chart axis repeats `Q3 FY24` even though surrounding charts indicate a different period progression.
+
+This type of issue is representative of the limitations of text-based PDF extraction and would be better handled by cross-chart validation or a visual extraction pass.
+
+### No Free-text Q&A
+
+The application does not currently provide a natural-language Q&A interface.
+
+The focus of this version is the underlying fact and relationship layer. A Q&A interface could be built on top of the existing fact store later.
+
+### No Production Authentication
+
+Authentication, authorization, and multi-tenancy are not implemented. The application is intended as a local/demo implementation rather than a production SaaS deployment.
 
 ## API
 
-```
-POST   /documents                 upload PDF (multipart, field name "file"), returns document_id immediately; pipeline runs async
-GET    /documents                 list all documents
-GET    /documents/:id             status + metadata
-GET    /documents/:id/facts       facts extracted from this document
-GET    /facts/:id                 single fact with full evidence
-GET    /facts/:id/relationships   relationships involving this fact
-GET    /relationships             browse all, filterable by ?type=corroborates|contradicts|reconciled_by_context|unrelated
-```
+```text
+POST   /documents
+       Upload a PDF using multipart field "file".
+       Returns document_id immediately.
+       Processing happens asynchronously.
 
-## A real finding: `pdf-parse` was rejected mid-build, and why
+GET    /documents
+       List all documents.
 
-The implementation guide names `pdf-parse` as the first-choice PDF library. While
-building this, `pdf-parse` failed with `bad XRef entry` on an ordinary, validly-formed
-PDF generated by a current PDF-writing library — not a corrupted or unusual file, just
-one produced by tooling from the last few years. The root cause: `pdf-parse` bundles
-its own copy of `pdfjs-dist` internally, and the version it bundles is from roughly
-2018 and hasn't been updated since ~2020. Since the assignment brief explicitly
-requires this to work on "any PDF... including ones never seen before," shipping on
-top of a parser already demonstrated to fail on an unremarkable file wasn't an
-acceptable trade for saving one dependency.
+GET    /documents/:id
+       Get document status and metadata.
 
-The fix: `src/ingestion/pdfExtractor.ts` uses `pdfjs-dist` directly (the actively
-Mozilla-maintained library `pdf-parse` itself wraps), at a current version, called via
-Node's dynamic `import()` since `pdfjs-dist` v4 ships ESM-only while this project is
-CommonJS (this required switching `tsconfig.json` to `"module": "Node16"` so
-TypeScript preserves the dynamic import as a real ESM import instead of transpiling it
-into a `require()` call, which would fail — `require()` cannot load an ESM package).
-This is documented here rather than silently patched because the guide named the
-original choice explicitly, and I'd rather show the failure and the reasoning than
-quietly diverge from the spec.
+GET    /documents/:id/facts
+       Get facts extracted from a document.
 
-`test/pdfExtractor.test.js` extracts real fixture PDFs and checks page-count and
-per-page text — this is what caught the original `pdf-parse` failure in the first
-place, before it was buried under storage/matching code.
+GET    /facts/:id
+       Get a single fact with its evidence.
 
-## A second real finding: the Gemini SDK and model IDs moved out from under this project
+GET    /facts/:id/relationships
+       Get relationships involving a fact.
 
-This one wasn't caught by a test — it only showed up on a live run against a real API
-key, which this environment didn't have during initial development. The first real run
-returned:
+GET    /relationships
+       Browse all relationships.
 
-```
-[404] This model models/gemini-2.0-flash is no longer available.
-Please update your code to use models/gemini-3.6-flash for the latest features
-and improvements.
+       Optional filter:
+       ?type=corroborates
+       ?type=contradicts
+       ?type=reconciled_by_context
+       ?type=unrelated
 ```
 
-Two separate things had moved, not just a model name:
+## Repository Structure
 
-1. **The SDK package itself.** `@google/generative-ai` (what this project originally
-   used) is fully deprecated — its own repository now reads "This SDK is now
-   deprecated, use the new unified Google GenAI SDK." The replacement is `@google/genai`.
-   `src/llm/geminiClient.ts` was rewritten against it. Like `pdfjs-dist`, `@google/genai`
-   ships ESM-only, so it's loaded via a lazily-cached dynamic `import()` rather than a
-   static import (same reasoning as the PDF-extraction fix above).
-2. **The embedding model was retired outright, not renamed.** `text-embedding-004`
-   (the guide's original recommendation) was fully shut down on January 14, 2026. Its
-   replacement, `gemini-embedding-2`, defaults to 3072-dimensional output; this project's
-   `sqlite-vec` schema is fixed at 768 dimensions (`EMBEDDING_DIM` in `src/storage/db.ts`),
-   so `embed()` now passes `outputDimensionality: 768` — the model supports this
-   natively via Matryoshka Representation Learning, truncating cleanly without a schema
-   migration.
-
-Both the extraction model (`GEMINI_EXTRACTION_MODEL`) and embedding model
-(`GEMINI_EMBEDDING_MODEL`) are `.env` settings specifically so the next retirement is a
-config change, not a code change — see `.env.example` for current defaults and where to
-check for the latest model IDs. I verified the new client actually reaches Google's API
-correctly (dynamic import resolves, request is constructed and sent) even though this
-development environment's own network policy blocks the destination host — I could not
-complete a full live extraction run end-to-end here. **If you hit further 404s or a
-different embedding dimension error, check `https://ai.google.dev/gemini-api/docs/models`
-for the current model IDs before assuming the code is at fault** — given how fast this
-API surface has moved twice already in this project's short lifetime, it's the more
-likely explanation.
-
-## Limitations and next steps (honest, on purpose)
-
-- **Extraction quality against the real test corpus is unverified.** I built and
-  smoke-tested this pipeline's *wiring* against synthetic fixture PDFs and a fake LLM
-  client implementing the same interface the real Gemini client does. I later confirmed
-  the *real* `@google/genai` client correctly loads, authenticates, and sends a
-  properly-formed request all the way to Google's servers — a live run surfaced the
-  SDK/model-retirement issue documented above — but this development environment's own
-  network policy blocks the destination host, so I still could not complete a full live
-  extraction and confirm output *quality* against real pages, or run the actual
-  seven-file corpus. Run `npm run ingest` against the real files before submitting and
-  confirm the four required cases actually reproduce; the leads and concrete numbers for
-  each are in the assignment's own case table.
-- **Chart-only numeric data isn't in the PDF text layer.** The Economic Survey's
-  charts, for instance, won't be extracted — the `has_visual_content` flag on `Fact`
-  exists so this can surface honestly in the UI (a fact the pipeline knows it might be
-  missing) rather than silently vanishing. A future vision-pass (rendering the page and
-  asking a multimodal model to read the chart) could close this; not attempted here.
-- **Table extraction confidence is heuristic, not guaranteed.** Complex multi-header
-  tables may still misattribute a value to the wrong column despite the tabular
-  prompt's explicit "restate the columns first" step. This is expected to surface as
-  `extraction_confidence: "low"`, not be hidden — if you see a lot of `"low"` facts on
-  a genuinely simple table, that's a sign the tabular prompt needs another look, not
-  that the UI should hide the signal.
-- **Page-11 chart mislabel (Case 4).** The guide's own additional-context doc names a
-  specific, real, already-discovered extraction-failure case: a chart's x-axis label
-  reads "Q3 FY24" a second time on the earnings presentation's page 11, where every
-  sibling chart on the same page correctly progresses through Q4 FY23/Q3 FY24/Q4 FY24.
-  I did not have that PDF to extract and confirm this against, but the finding is
-  documented in the source material and the fix approach (cross-check axis labels
-  against sibling charts on the same page before trusting them) is a page-classification
-  or a post-extraction validation concern, not something this build attempted to solve
-  — flagging it honestly here rather than fabricating a different failure case to fill
-  the requirement.
-- **Free-tier rate limits cap real-time ingestion speed for large PDFs.** Noted rather
-  than over-engineered around; the dev-mode LLM cache and `DEV_MAX_PAGES` flag exist to
-  make *development* tolerable, not to make production throughput unlimited.
-- **No free-text Q&A over the fact store.** Out of scope for v1 by design (see "Why
-  this shape, not RAG" above) — could be added later on the same embeddings.
-- **No production auth/multi-tenancy.** Not attempted; out of scope per the brief.
-- **`metric_canonical` clustering quality depends entirely on embedding quality for
-  short phrases**, which I could not empirically validate against real Gemini
-  embeddings in this environment (see "unverified" note above). The threshold
-  (`CANONICAL_SIMILARITY_THRESHOLD=0.90`) is a starting point to tune by inspection
-  once real embeddings are available, per the guide's own validation plan — not a
-  number I'd claim is correct without having watched it run.
-- **`npm audit` reports 4 moderate transitive-dependency advisories** (Express's `qs`
-  dependency; `uuid`'s v3/v5/v6 buffer-bounds check). Noted rather than silently
-  ignored: the `qs` fix requires an untested Express 5 major-version bump, out of scope
-  for this build; the `uuid` advisory only affects the namespace-based `v3`/`v5`/`v6`
-  functions with a caller-supplied buffer, which this codebase never calls — only
-  `v4()` (random UUIDs, no buffer argument) is used anywhere here.
-
-## Repo structure
-
-```
+```text
 /src
-  /ingestion       — PDF -> page text (pdfjs-dist), page classification
-  /extraction      — prompt templates + envelope-filling, tabular & narrative
-  /matching        — embedding-based candidate generation, incremental canonicalization
-  /judging         — pairwise relationship LLM calls + prompt
-  /storage         — SQLite schema, migrations, sqlite-vec setup, repositories
-  /api             — Express routes
-  /llm             — provider-agnostic LLM client wrapper, Gemini implementation, backoff, dev cache
-  /pipeline        — orchestrates ingest -> classify -> extract -> store -> canonicalize -> match -> judge
-/web               — minimal vanilla HTML/JS/CSS frontend, no build step
-/test              — node:test suite against real (synthetic) fixture PDFs and fake LLM clients
-/scripts           — dev-ingest.ts, CLI entry point for the validation workflow
+  /ingestion       — PDF extraction and page classification
+  /extraction      — fact extraction prompts
+  /matching        — embeddings, matching, canonicalization
+  /judging         — relationship judging
+  /storage         — SQLite and sqlite-vec
+  /api              — Express API
+  /llm              — Gemini client, cache, retry logic
+  /pipeline         — ingestion orchestration
+
+/web                — frontend
+
+/test               — automated tests
+
+/scripts             — CLI and development utilities
+```
+
+```
 ```
